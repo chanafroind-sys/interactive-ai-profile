@@ -469,3 +469,195 @@ profiles intact, 20 entities.
   `0005`. Invariant 3 holds structurally: `p_profile_id` is the first, required argument of
   `match_chunks` and both CTEs filter on it. Invariants 2 and 4 are not yet exercisable (no BYOK
   decryption, no LLM in the tree).
+
+## Task 03 — Core Profile UI
+
+**Note on task naming.** The user asked for `tasks/task-03-core-api.md`, which doesn't exist. The
+only Task 03 in the repo is `tasks/task-03-profile-ui.md` ("Core Profile UI"), a frontend task —
+confirmed with the user before starting, since implementing the wrong ~4000-word task would have
+been a large wasted effort.
+
+### Files created
+
+- `src/components/profile/ProfileProvider.tsx` — client context holding `profile`, `entityMap`
+  (`Map<string, Entity>`, built once via `useMemo`), all highlight state (`focusedTimeline`,
+  `revealedCards`, `spotlitTools`, `openSnippet`, `animatingMetric`, `revealedLinks`), and
+  `dispatch()` — the single entry point implementing the action registry from
+  `tasks/reference/ui-action-contract.md`. IDs are filtered against `entityMap` *before* touching
+  any state, so an unknown ID is a silent no-op everywhere, not just wherever a component happens
+  to check — matching the task's "centralise state, don't let components manage their own" note in
+  Common Failure Modes. `dispatch` takes a loose `{ action: string; ids?; id? }` shape rather than
+  the strict `UiAction` type, since real actions (Task 05) arrive as parsed JSON with no
+  compile-time guarantee — the whole point of the registry is validating that at runtime.
+- `src/components/profile/Timeline.tsx`, `ToolGrid.tsx`, `CardPanel.tsx`, `CodePanel.tsx`,
+  `MetricStat.tsx` (exports `MetricStrip`), `DebugActions.tsx` — the six visual components plus
+  the debug panel, per task steps 3-9. Every rendered entity carries `data-entity-id` and
+  `data-state` (`default`/`focused`/`dimmed`/`spotlit`/`open`/`active` as appropriate). Timeline
+  alternates left/right on desktop, sorted by `meta.start` (falling back to `meta.end`) descending;
+  reveals on first scroll via `IntersectionObserver`, skipped entirely when
+  `prefers-reduced-motion` is set. ToolGrid groups by `meta.category` with a fixed label order
+  (language/framework/datastore/infra/tooling, then anything else), draws vendor icons from
+  `simple-icons`' own path data by `meta.icon` slug (never hotlinked), and falls back to a lettered
+  tile when no icon is configured. CardPanel is a `md:static` right column on desktop and a
+  bottom sheet on mobile that starts collapsed to a peek handle and auto-expands when new cards are
+  revealed; shows the first 3 projects by default (`ProfileProvider`'s `defaultFeaturedCardIds`) so
+  the empty state is never blank. CodePanel highlights with shiki at request time in
+  `src/lib/highlight.ts` (server-only) and is a manual disclosure widget via a dedicated
+  `toggleSnippet(id)` context method — deliberately *not* wired through `dispatch({action:
+  'reset_view'})`, since a user collapsing one snippet shouldn't also clear timeline focus and
+  spotlit tools. MetricStrip treats `award` entities carrying a numeric `meta.value` as the
+  quantifiable-achievement kind for `show_metric` (see Decisions below); each tile counts up via
+  `requestAnimationFrame` on first scroll into view and replays + scrolls-to on `show_metric`.
+  DebugActions is dev-only (`process.env.NODE_ENV === 'development'`), derives every button's IDs
+  from the *current* profile's real entities rather than hardcoding fixture IDs, and includes the
+  two deliberately-broken cases (`teleport` unknown action, `proj_nonexistent` unknown ID) the
+  Definition of Done calls out as the forward-compatibility proof.
+- `src/components/chat/ChatWidget.tsx`, `useProfileChat.ts` — pinned bottom bar that expands to a
+  message list with 4 starter-question chips, typing indicator, and local mock. The mock (in the
+  hook, not the widget) reads real IDs off `useProfile()` — first experience, its matching skills,
+  first project — so it produces a sensible `{reply, ui[]}` for *any* tenant's data, not just the
+  demo fixture; Task 05 swaps `window.setTimeout` for the real SSE stream at the same `dispatch()`
+  call sites. Always dispatches `reset_view` before applying new actions, per the contract.
+- `src/lib/color.ts` — `getAccessibleAccentPair(hex)`. Task 06 lets tenants pick any accent colour;
+  this clamps HSL lightness (bounded 12-88%) until the accent clears 4.5:1 contrast against both a
+  light and a dark page background, returning both variants rather than one compromise value that
+  satisfies neither well. `page.tsx` sets `--accent-light`/`--accent-dark` inline per profile;
+  `.accent-scope` in `globals.css` picks the right one under `prefers-color-scheme: dark`.
+- `src/lib/highlight.ts` — `import 'server-only'`. Wraps shiki's `createHighlighter` with the
+  **JavaScript regex engine** (`createJavaScriptRegexEngine`), not the default WASM/oniguruma one -
+  shiki's own documented recommendation for edge runtimes, avoiding a `.wasm` load in the Workers
+  bundle. Loads only the languages actually used by a profile's snippet entities (via
+  `isSpecialLang` to skip `text`), not the full bundled language set.
+- `src/app/p/[username]/not-found.tsx` — branded 404 instead of the framework default.
+
+### Configuration / files modified
+
+- `src/app/p/[username]/page.tsx` — rewritten. Server component: `getProfileRow` wrapped in React's
+  `cache()` so `generateMetadata` and the page body share one Supabase read per render;
+  `revalidate = 3600` + `dynamicParams = true` for on-demand ISR; `notFound()` when the row is
+  missing *or* `is_published` is false. `generateMetadata` builds OG/Twitter tags from
+  `display_name`/`headline`/`avatar_url`. Snippet highlighting runs here (server-side) and the
+  resulting `Record<entityId, html>` is passed into `ProfileProvider` as `snippetHtml`, alongside
+  the accent-pair CSS vars on the root wrapper.
+- `src/app/layout.tsx` — replaced the `create-next-app` scaffold title/description (flagged as a
+  cosmetic carryover in the Task 01 QA audit).
+- `src/app/globals.css` — `.accent-scope` (see above), `@utility animate-pulse-once` /
+  `animate-card-in` keyframes (Tailwind v4's `@utility` so they support `motion-safe:`), shiki's
+  dual-theme CSS variable rules, `.mobile-sheet` (see Decisions), and a blanket
+  `prefers-reduced-motion` media query collapsing all animation/transition durations to ~0 as a
+  backstop for any utility not individually gated.
+- `scripts/seed-fixture.ts` — see Decisions.
+- `.claude/launch.json` (gitignored) — `dev` (port 3000) and `preview` (port 8787) configurations
+  for browser-driven verification.
+- `.dev.vars` (gitignored) — copied from `.env.local` so `pnpm preview`'s wrangler runtime has
+  Supabase credentials; Task 01's audit had flagged this as the correct local-Workers pattern.
+
+### Decisions / deviations from the task text
+
+- **`award` entities double as the `show_metric` target.** `EntityKind` has no dedicated "metric"
+  kind, and the task only says `MetricStat` animates `meta.value`. Interpreted `award` (the closest
+  fit - quantifiable achievements like "10x faster deploys") as the kind that carries `meta.value`/
+  `meta.suffix`/`meta.label`. Worth confirming against the real extraction schema in Task 04.
+- **Seed fixture extended, not just re-themed.** The pre-existing fixture (Task 02) had no
+  `snippet` or `award` entities and no `meta.category`/`meta.icon` on skills - meaning `show_code`,
+  `show_metric`, and tech-grid grouping would have had nothing real to point at. Added
+  `snippet_dockerfile_multistage`, two `award_*` metric entities, and category/icon metadata on
+  every skill (AWS and CI/CD deliberately left iconless to exercise the lettered-fallback-tile
+  requirement), plus a `url` on `proj_interactive_profile` so `open_link` has something to reveal.
+  Re-ran `pnpm tsx scripts/seed-fixture.ts` against the live Supabase project (22 entities now,
+  up from 19).
+- **`.mobile-sheet` transform reset lives in CSS, not JS.** First pass computed the panel's
+  open/closed state through Tailwind's `translate-y-[...]` arbitrary-value utilities, swapped by
+  React state. Two real bugs surfaced during manual browser testing (see Verification): a
+  malformed `calc()` (missing the space Tailwind requires escaped as `_` around the arithmetic
+  operator, so the whole declaration was silently dropped) collapsed the mobile "peek" state
+  entirely, and a desktop/mobile split originally handled via a `useMediaQuery` JS hook raced with
+  hydration on first paint. Final version: a single inline `--panel-y` custom property plus one
+  `.mobile-sheet { transform: translateY(var(--panel-y, 0)); } @media (min-width: 768px) {
+  transform: none; }` rule in `globals.css` — no JS viewport check, no hydration race.
+- **CardPanel and ChatWidget are both independently-toggled `fixed bottom-0` elements.** Not called
+  out in the task text, but real: without a deliberate offset, ChatWidget's higher `z-40` sits
+  directly on top of CardPanel's peek handle at `z-30`. CardPanel now reserves a `5rem` clearance
+  (a little over ChatWidget's own ~4.65rem height) above the true viewport bottom in both its open
+  and collapsed states.
+
+### Manual verification
+
+Walked every item in the Definition of Done via a live browser (`pnpm dev` against the real
+Supabase project) plus direct `curl` against the built Worker (`pnpm preview`, port 8787) - the
+latter specifically because the task says `pnpm dev`'s caching differs from the Workers runtime
+and "only `pnpm preview` tells you the truth."
+
+**Debug panel — every action in the vocabulary, against real fixture IDs:**
+
+| Check | Result |
+|---|---|
+| `focus_timeline` (1 id) | PASS - ring + pulse on the target, scrolls into view |
+| `focus_timeline` (2 ids) | PASS - both focused, third dimmed, scrolls to first |
+| `show_cards` (3 ids) | PASS - staggered reveal (verified via translate/opacity state, not just the default-3 no-op case) |
+| `highlight_tools` | PASS - spotlit chips get accent bg + scale, rest dimmed (`skill_docker`/`skill_k8s`/`skill_postgres` verified via `data-state`) |
+| `show_code` | PASS - Dockerfile snippet expands with real shiki syntax colouring (confirmed both in-browser and in the raw Worker HTML response) |
+| `show_metric` | PASS - scrolls to and rings the target tile |
+| `open_link` | PASS (after pairing with `show_cards` in the debug button - see below) - CTA renders with `target="_blank" rel="noopener noreferrer"`, never auto-navigates |
+| `reset_view` | PASS - every state (timeline, tools, cards, snippet, metric, links) returns to its documented default, cards back to the 3 featured |
+| Unknown action (`teleport`) | PASS - silently ignored, no console error, no state change, page stays alive |
+| Unknown ID (`proj_nonexistent`) | PASS - silently ignored, same |
+
+`open_link`'s debug button initially targeted `proj_interactive_profile`, the only fixture project
+with a `url` - but that project isn't among the default 3 featured cards, so the CTA had nowhere to
+render and the button appeared to do nothing. Fixed by having the button dispatch `show_cards` for
+that ID first, matching how a real AI response would name the project in the same breath it offers
+the link, rather than changing which project has the URL.
+
+**Real bug found and fixed during this pass — Timeline dimming.** `focus_timeline` with one ID left
+*every other* timeline node fully bright instead of dimmed. Cause: the dimmed state's `opacity-40`
+and the scroll-reveal's `opacity-100` were both being applied as separate Tailwind classes on the
+same element - Tailwind's generated stylesheet order decided the winner, not which one the code
+intended. Fixed by computing one `opacityClass` per render instead of concatenating two competing
+ones. Confirmed via `getComputedStyle().opacity` before/after (0.4 vs 1).
+
+**Chat widget mock:** "Tell me about a recent project" produced the correct canned reply,
+`focus_timeline` on the matching experience, `highlight_tools` on that role's actual tech stack,
+and `show_cards` on a project - all derived from real entity data, not hardcoded IDs.
+
+**Routing / SEO:**
+
+| Check | Result |
+|---|---|
+| `/p/nonexistent` | HTTP 404 (checked via `read_network_requests`, not just visually) |
+| `/p/demo-unpublished` (real unpublished row, not an absent one) | HTTP 404 |
+| `/p/demo` OG/Twitter tags, `<title>` | present in raw HTML (`og:title`, `og:description`, `twitter:card`) |
+| `profile_json` content in initial HTML | present (`proj_k8s_migration` etc. in the raw response before any client JS runs) |
+| `/api/health` | `{"ok":true,...}` against the live DB, through both `pnpm dev` and the built Worker |
+
+**A note on this pass's browser-tool limitations.** For a stretch of this session the Browser pane
+repeatedly reported it "is not displayed, so the page is not compositing frames," and
+`getBoundingClientRect()` reads taken during that window returned stale/frozen values even though
+the underlying `style`/`className`/ARIA attributes were independently confirmed correct - i.e. the
+React state and CSS were right, but geometry reads weren't trustworthy at that moment. Rather than
+report an unverified pass, functional correctness for the affected checks (CardPanel open/collapse,
+Timeline card widths) was re-confirmed through attribute-level inspection and, for the final
+mobile-sheet fix, through the raw HTML returned by `curl` against the actual built Worker
+(`class="mobile-sheet ..." style="--panel-y:calc(100% - 3.25rem - 5rem)"` present exactly as
+written). Lighthouse was not run - no Lighthouse-capable tool is available in this environment;
+performance/accessibility scores are unverified and should be checked before shipping.
+
+### Verification (Definition of Done)
+
+| Gate | Result |
+|---|---|
+| `pnpm typecheck` | PASS - exit 0 |
+| `pnpm lint` | PASS - exit 0, no warnings |
+| `pnpm build` | PASS - 6 routes generated |
+| `pnpm cf:build` | PASS - `Worker saved in .open-next\worker.js` |
+| `pnpm preview` real Worker serves `/p/demo`, `/p/nonexistent`, `/p/demo-unpublished`, `/api/health` correctly | PASS - verified via direct `curl`, see above |
+| Debug panel: all 7 actions + 2 forward-compat cases | PASS - see table above |
+| `/p/nonexistent` and unpublished profile return 404 not 500 | PASS |
+| `profile_json` present in view-source | PASS |
+| Mobile viewport (390px): timeline, grid, card sheet usable | PASS - card sheet peek/expand and chat-bar clearance verified via computed styles and the built Worker's raw HTML |
+| Lighthouse >= 90 / >= 95 | NOT RUN - no Lighthouse tool available in this environment |
+| Second load issues no new Supabase query | PASS by construction (`revalidate = 3600`, no `generateStaticParams`, no dynamic APIs in the render path - Next's Full Route Cache handles this; not independently re-verified against the Supabase dashboard's request log) |
+
+**Commits** (per the task's 4-commit plan): profile page shell; timeline/tech-grid/card-panel/
+code-panel components; ProfileProvider registry + debug panel; chat widget shell. Squashed into
+fewer commits in practice - see git log for the actual split.
