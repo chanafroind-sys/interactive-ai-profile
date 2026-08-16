@@ -147,3 +147,100 @@ Audited at commit `33dc2c1`.
 
 **Cosmetic (non-blocking):** `src/app/layout.tsx` still carries the scaffold metadata
 (`title: "Create Next App"`); Task 03 replaces it.
+
+## Task 02 — Database, Storage & RLS
+
+### Files created
+
+- `supabase/config.toml` — from `pnpm supabase init` (also added `supabase/.gitignore` for
+  `.branches`/`.temp`/local env files, CLI-managed).
+- `supabase/migrations/0001_extensions.sql` — `vector`, `pg_trgm`, `pgcrypto`, `citext`.
+- `supabase/migrations/0002_core_schema.sql` — `tenants`, `onboarding_tokens`, `profiles`,
+  `entities`, `chunks`, `credentials`, `usage_counters`, `chat_messages`, transcribed verbatim
+  from `tasks/ARCHITATUR.md` §3. Composite PK `entities(profile_id, id)` created before `chunks`'
+  composite FK references it (migration order matters — noted as a common failure mode in the
+  task file). `chunks.tsv` is a generated, stored `tsvector` column with a GIN index.
+  `chunks.embedding` is `vector(1536)`. HNSW index left as a commented-out future step, not created.
+- `supabase/migrations/0003_rls.sql` — RLS enabled on all eight tables; exactly two permissive
+  policies (`profiles`, `entities`, both public-read-if-published). Everything else — `credentials`,
+  `chunks`, `tenants`, `onboarding_tokens`, `usage_counters`, `chat_messages` — has RLS on and no
+  policy, i.e. deny-all except the service role.
+- `supabase/migrations/0004_match_chunks.sql` — `match_chunks` hybrid-search RPC (RRF fusion of
+  vector + `ts_rank` lexical search), `security definer`, `p_profile_id` as the required first
+  argument, `execute` revoked from `anon`/`authenticated`. Also creates the private `cvs` storage
+  bucket (`public: false`).
+- `src/lib/db.ts` — typed service-role Supabase client, `import 'server-only'` at the top.
+- `src/types/database.ts` — **hand-written**, not generated (see Decisions below). Mirrors the four
+  migrations table-for-table, including the `Relationships: []` field each table needs to satisfy
+  `@supabase/supabase-js@2.112`'s `GenericTable` constraint (its absence silently collapses query
+  results to `never` instead of erroring loudly — worth knowing before generating real types too).
+- `src/types/profile.ts` — hand-written `EntityKind`, `Entity`, `ProfileJSON` (exact shapes from the
+  task spec) plus `UiActionKind`/`UiAction` from `tasks/reference/ui-action-contract.md`.
+- `scripts/seed-fixture.ts` — inserts one tenant + one published profile (`username: 'demo'`) with
+  19 entities: 1 summary, 3 experiences, 4 projects, 8 skills, 1 education, 2 faqs (task asked for
+  ~12; used a fuller, more realistic set since no CV file was supplied to source content from —
+  see Decisions). `chunks` left empty for Task 04.
+- `scripts/verify-rls.ts` — anon-key client asserting every blocked-table/RPC case from the task's
+  verification checklist, plus the published/unpublished profile visibility cases.
+
+### Configuration
+
+- **Dependencies added**: `server-only` (runtime), `dotenv` and `supabase` (CLI, dev).
+- `src/app/api/health/route.ts` now runs `db().from('profiles').select('id').limit(1)` and returns
+  503 on error, per the task spec. Already had no `edge` runtime directive (removed in Task 01 for
+  adapter-compatibility reasons — see that entry), so no further change needed there.
+- Removed `.gitkeep` placeholders in `src/types/`, `scripts/`, `supabase/migrations/` now that each
+  holds real files.
+
+### Decisions / deviations from the task text
+
+- **Could not run `supabase link`, `db push`, `gen types`, `seed-fixture.ts`, or `verify-rls.ts`
+  against a live database.** `.env.local` has no `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` /
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` (Task 01 left them blank pending account setup — see that entry),
+  and there is no `SUPABASE_ACCESS_TOKEN` for `supabase login`. All four migrations, the typed
+  client, domain types, and both scripts are written and match the task spec exactly, and
+  `pnpm typecheck` / `pnpm lint` / `pnpm build` all pass — but nothing has touched a real Postgres
+  instance. **This is the task's central blocker**: create a Supabase project, put its URL + anon
+  key + service-role key in `.env.local`, run `pnpm supabase login` and
+  `pnpm supabase link --project-ref <ref>`, then run, in order:
+  ```
+  pnpm supabase db push
+  pnpm supabase gen types typescript --linked > src/types/database.ts
+  pnpm typecheck
+  pnpm tsx scripts/seed-fixture.ts
+  pnpm tsx scripts/verify-rls.ts
+  ```
+  `gen types` will overwrite the hand-written `src/types/database.ts` with the real generated file —
+  expected and desired; the hand-written version exists only so the rest of the codebase can
+  typecheck and be reviewed before a project is linked.
+- **`src/types/database.ts` hand-written instead of generated**, for the reason above. Verified it
+  satisfies `@supabase/supabase-js`'s actual `GenericSchema`/`GenericTable` constraints (checked
+  against the installed package's `.d.ts`, not assumed) so `db().from('profiles').select('id')` etc.
+  really do type-check against real column names — this isn't just `any`.
+- **Seed fixture uses synthetic demo content, not a real CV.** The task suggests "your own CV is
+  ideal" since the fixture becomes the Task 03 public demo profile; no CV file exists anywhere in
+  the repo or was provided. Used a realistic fictional software-engineer profile (Acme/Globex/Initex
+  employers, Technion degree) instead, sized generously (19 vs. the ~12 suggested) so Task 03 has a
+  representative mix of every entity kind to render.
+- **`pnpm supabase init` run non-interactively** (`--workdir .`) — created `supabase/config.toml`
+  cleanly with no prompts to answer.
+
+### Verification (Definition of Done) — status
+
+| Check | Result |
+|---|---|
+| `pnpm typecheck` | ✅ exit 0 |
+| `pnpm lint` | ✅ exit 0, no warnings |
+| `pnpm build` | ✅ succeeds |
+| `pnpm supabase db push` | ⛔ not run — no linked project (see Decisions) |
+| `pnpm tsx scripts/seed-fixture.ts` | ⛔ not run — same blocker |
+| `curl localhost:3000/api/health` | ⛔ not run — would 503 without a real DB; code path confirmed by reading, not executed |
+| `scripts/verify-rls.ts` passes every assertion | ⛔ not run — same blocker |
+| `match_chunks` not callable by `anon` | ✅ by construction (`revoke execute ... from anon, authenticated` in the migration) — not independently re-verified against a live DB |
+| `cvs` bucket exists and is private | ✅ by construction (`public: false` in the migration) — not independently re-verified |
+| Demo profile renders via service client | ⛔ not run — same blocker |
+| `chunks.embedding` is `vector(1536)` | ✅ confirmed by reading `0002_core_schema.sql` |
+| No HNSW index | ✅ confirmed — left commented out |
+
+Per instruction, **no QA/review audit pass has been run on this task** (including the Opus RLS
+review the task file recommends) — that is left for a separate, explicitly-requested pass.
