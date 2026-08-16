@@ -23,6 +23,16 @@ function checkVisible(name: string, error: { message: string } | null, data: unk
   if (!visible) failures++;
 }
 
+// RPCs don't get filtered to zero rows like a table under RLS — an
+// unauthorized call must be rejected outright. PostgREST surfaces a
+// Postgres permission-denied error as code '42501'; anything else (a plain
+// empty array, a different error) means the grant isn't actually revoked.
+function checkPermissionDenied(name: string, error: { code?: string; message: string } | null) {
+  const denied = error !== null && error.code === '42501';
+  console.log(`${denied ? 'PASS' : 'FAIL'} — ${name} must be rejected with 42501 (permission denied)${error && !denied ? ` (got: ${error.code ?? 'no code'} — ${error.message})` : ''}`);
+  if (!denied) failures++;
+}
+
 async function main() {
   const credentials = await anon.from('credentials').select('*');
   checkBlocked('anon SELECT credentials', credentials.error, credentials.data);
@@ -47,7 +57,7 @@ async function main() {
     p_embedding: new Array(1536).fill(0),
     p_query: 'test',
   });
-  checkBlocked('anon RPC match_chunks', matchChunks.error, matchChunks.data as unknown[] | null);
+  checkPermissionDenied('anon RPC match_chunks', matchChunks.error);
 
   const publishedProfile = await anon.from('profiles').select('*').eq('username', 'demo');
   checkVisible('anon SELECT published demo profile', publishedProfile.error, publishedProfile.data);

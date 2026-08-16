@@ -173,10 +173,53 @@ const profileJson: ProfileJSON = {
   entities,
 };
 
-async function main() {
+// A second, unpublished profile exists purely so verify-rls.ts has a real
+// row to assert against for the "unpublished profiles are never visible to
+// anon" case — testing that against a username with no matching row at all
+// proves nothing, since an absent row and an RLS-blocked row look identical
+// from the client's side.
+const unpublishedEntities: Entity[] = [
+  {
+    id: 'summary',
+    kind: 'summary',
+    title: 'Summary',
+    body: 'Draft profile, not yet published. Used only to test that unpublished profiles stay invisible to the anon key.',
+    meta: {},
+    sort_order: 0,
+  },
+];
+
+const unpublishedProfileJson: ProfileJSON = {
+  display_name: 'Draft Profile',
+  headline: 'Unpublished — RLS negative-test fixture',
+  avatar_url: null,
+  theme: { accent: '#6366f1' },
+  entities: unpublishedEntities,
+};
+
+interface SeedProfile {
+  tenantEmail: string;
+  username: string;
+  isPublished: boolean;
+  entities: Entity[];
+  profileJson: ProfileJSON;
+}
+
+const seedProfiles: SeedProfile[] = [
+  { tenantEmail: 'demo@example.com', username: 'demo', isPublished: true, entities, profileJson },
+  {
+    tenantEmail: 'demo-unpublished@example.com',
+    username: 'demo-unpublished',
+    isPublished: false,
+    entities: unpublishedEntities,
+    profileJson: unpublishedProfileJson,
+  },
+];
+
+async function seedProfile({ tenantEmail, username, isPublished, entities, profileJson }: SeedProfile) {
   const { data: tenant, error: tenantError } = await client
     .from('tenants')
-    .insert({ email: 'demo@example.com', status: 'live', plan: 'lifetime' })
+    .insert({ email: tenantEmail, status: 'live', plan: 'lifetime' })
     .select('id')
     .single();
   if (tenantError || !tenant) throw tenantError ?? new Error('tenant insert failed');
@@ -185,8 +228,8 @@ async function main() {
     .from('profiles')
     .insert({
       tenant_id: tenant.id,
-      username: 'demo',
-      is_published: true,
+      username,
+      is_published: isPublished,
       display_name: profileJson.display_name,
       headline: profileJson.headline,
       avatar_url: profileJson.avatar_url,
@@ -210,7 +253,20 @@ async function main() {
   );
   if (entitiesError) throw entitiesError;
 
-  console.log(`Seeded tenant ${tenant.id}, profile ${profile.id} (/p/demo), ${entities.length} entities.`);
+  console.log(`Seeded tenant ${tenant.id}, profile ${profile.id} (/p/${username}, published=${isPublished}), ${entities.length} entities.`);
+}
+
+async function main() {
+  // Idempotent re-run: drop any prior seed data for these fixtures first.
+  // Tenant deletion cascades to profiles, which cascades to entities.
+  const emails = seedProfiles.map((p) => p.tenantEmail);
+  const { error: cleanupError } = await client.from('tenants').delete().in('email', emails);
+  if (cleanupError) throw cleanupError;
+
+  for (const profile of seedProfiles) {
+    await seedProfile(profile);
+  }
+
   console.log('chunks table left empty — Task 04 fills it.');
 }
 

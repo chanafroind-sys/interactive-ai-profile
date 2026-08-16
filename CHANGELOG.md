@@ -310,7 +310,7 @@ because unexpected third-party references in tool output are worth a paper trail
 |---|---|
 | All four migrations applied cleanly | ✅ |
 | `verify-rls.ts` passes every assertion | ✅ |
-| `match_chunks` not callable by `anon` | ✅ (live-verified) |
+| `match_chunks` not callable by `anon` | ⚠️ was a false positive — see "Security fix" section below |
 | `cvs` bucket exists and is private | ✅ by construction (`public: false`); not independently re-queried against Storage API this pass |
 | Demo profile renders data via the service client | ✅ (`/api/health` query + seed script's own read-back) |
 | `chunks.embedding` is `vector(1536)` | ✅ |
@@ -321,3 +321,62 @@ Task 02 is functionally complete. The one open item is regenerating `src/types/d
 the live schema once Docker is available, which is a mechanical follow-up, not a design gap — the
 hand-written version already matches the applied schema exactly, as evidenced by every live query
 above type-checking and executing correctly.
+
+### Security fix — `match_chunks` was reachable by the anon key after all
+
+**Correcting a prior status claim.** The "✅ (live-verified)" mark on "`match_chunks` not callable
+by `anon`" above was a false positive. `0004_match_chunks.sql` ran
+`revoke execute on function match_chunks from anon, authenticated`, but Postgres grants every newly
+created function `EXECUTE` to `PUBLIC` by default — and `anon`/`authenticated` implicitly inherit
+from `PUBLIC` like every role does. Revoking from the two named roles never touched that standing
+`PUBLIC` grant, so the anon key could still execute the function.
+
+The old `verify-rls.ts` didn't catch this because its `match_chunks` assertion only checked whether
+the response held rows (`data.length === 0`) or an error — it did not distinguish "the call was
+rejected" from "the call succeeded but the query itself matched nothing." The probe used a
+non-existent `profile_id`, so a *successful, unauthorized* execution and a *properly rejected* one
+looked identical: both returned an empty array with no error. The check passed either way, which is
+exactly why it missed the hole.
+
+**Fix — `supabase/migrations/0005_fix_match_chunks_grant.sql`:**
+```sql
+revoke execute on function match_chunks(uuid, vector, text, int) from public;
+revoke execute on function match_chunks(uuid, vector, text, int) from anon, authenticated;
+```
+Pushed with the same `--db-url` flow as the earlier migrations (`supabase link`/`login` still
+unavailable — no access token). Applied cleanly.
+
+**`verify-rls.ts` strengthened** to assert on the actual failure mode instead of an ambiguous empty
+result: the `match_chunks` probe now requires the response to carry Postgres error code `42501`
+(permission denied) — `checkPermissionDenied()`, replacing the old `checkBlocked()` call for that
+one case. `checkBlocked()` stays as-is for table `SELECT`s, where RLS legitimately produces an
+empty result rather than an error, so that distinction is preserved rather than papered over.
+
+**`scripts/seed-fixture.ts` now seeds a second, unpublished profile** (`username:
+'demo-unpublished'`, `is_published: false`, tenant `demo-unpublished@example.com`, one minimal
+`summary` entity) alongside the original `demo` profile. Previously the "unpublished profile blocked"
+assertion in `verify-rls.ts` queried a username with no row at all — a nonexistent row and an
+RLS-filtered row are indistinguishable to the client, so that check was also not really proving
+anything. The script was made idempotent (deletes any existing seed tenants by email before
+re-inserting, relying on `on delete cascade`) so it can be re-run safely.
+
+**Re-ran end to end against the live project** — `pnpm typecheck` (clean), `pnpm tsx
+scripts/seed-fixture.ts` (both profiles seeded), `pnpm tsx scripts/verify-rls.ts`:
+
+| Assertion | Result |
+|---|---|
+| anon `SELECT credentials` | ✅ blocked |
+| anon `SELECT chunks` | ✅ blocked |
+| anon `SELECT tenants` | ✅ blocked |
+| anon `SELECT onboarding_tokens` | ✅ blocked |
+| anon `SELECT usage_counters` | ✅ blocked |
+| anon `SELECT chat_messages` | ✅ blocked |
+| anon RPC `match_chunks` | ✅ rejected with `42501` (real permission-denied error, not an empty-array artifact) |
+| anon `SELECT profiles WHERE username='demo'` (published) | ✅ visible |
+| anon `SELECT profiles WHERE username='demo-unpublished'` (real unpublished row) | ✅ blocked |
+
+**Corrected status:** "`match_chunks` not callable by `anon`" in the two tables above should be read
+as ✅ **only as of this fix** (migration `0005` + live re-verification on this date), not as of the
+original Task 02 pass. The underlying cause — Postgres's implicit `PUBLIC` execute grant on new
+functions — is worth carrying forward: any future `security definer` RPC needs the same explicit
+`revoke ... from public`, not just `from anon, authenticated`, or it will have the identical hole.
