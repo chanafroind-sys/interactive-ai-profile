@@ -72,7 +72,8 @@ const entities: Entity[] = [
     kind: 'project',
     title: 'Interactive AI profile (this site)',
     body: 'A multi-tenant SaaS that turns a CV into an AI-driven interactive profile page: visitors chat with an agent that selects which timeline entries, cards and tools to reveal, backed by hybrid RAG search over pgvector.',
-    meta: { url: null, tech: ['Next.js', 'Cloudflare Workers', 'Supabase', 'pgvector'] },
+    // Only fixture project with a link, so `open_link` has something real to reveal in the demo.
+    meta: { url: 'https://github.com', tech: ['Next.js', 'Cloudflare Workers', 'Supabase', 'pgvector'] },
     sort_order: 7,
   },
   {
@@ -80,7 +81,7 @@ const entities: Entity[] = [
     kind: 'skill',
     title: 'Docker',
     body: 'Docker — containerising services and build pipelines, daily use since 2019.',
-    meta: {},
+    meta: { category: 'infra', icon: 'docker' },
     sort_order: 8,
   },
   {
@@ -88,7 +89,7 @@ const entities: Entity[] = [
     kind: 'skill',
     title: 'Kubernetes',
     body: 'Kubernetes — operating and deploying production workloads, including custom controllers and Helm charts.',
-    meta: {},
+    meta: { category: 'infra', icon: 'kubernetes' },
     sort_order: 9,
   },
   {
@@ -96,7 +97,7 @@ const entities: Entity[] = [
     kind: 'skill',
     title: 'PostgreSQL',
     body: 'PostgreSQL — schema design, query tuning, and pgvector for retrieval workloads.',
-    meta: {},
+    meta: { category: 'datastore', icon: 'postgresql' },
     sort_order: 10,
   },
   {
@@ -104,7 +105,7 @@ const entities: Entity[] = [
     kind: 'skill',
     title: 'TypeScript',
     body: 'TypeScript — primary language for backend services and tooling over the last 4 years.',
-    meta: {},
+    meta: { category: 'language', icon: 'typescript' },
     sort_order: 11,
   },
   {
@@ -112,7 +113,7 @@ const entities: Entity[] = [
     kind: 'skill',
     title: 'Python',
     body: 'Python — FastAPI services and data pipeline scripting.',
-    meta: {},
+    meta: { category: 'language', icon: 'python' },
     sort_order: 12,
   },
   {
@@ -120,7 +121,7 @@ const entities: Entity[] = [
     kind: 'skill',
     title: 'Next.js',
     body: 'Next.js — App Router, server components and edge deployment.',
-    meta: {},
+    meta: { category: 'framework', icon: 'nextdotjs' },
     sort_order: 13,
   },
   {
@@ -128,7 +129,8 @@ const entities: Entity[] = [
     kind: 'skill',
     title: 'AWS',
     body: 'AWS — EC2, RDS, S3 and IAM for production infrastructure.',
-    meta: {},
+    // No simple-icons entry for AWS (trademark policy) — exercises the lettered fallback tile.
+    meta: { category: 'infra' },
     sort_order: 14,
   },
   {
@@ -136,7 +138,8 @@ const entities: Entity[] = [
     kind: 'skill',
     title: 'CI/CD',
     body: 'CI/CD — GitHub Actions pipelines for test, build and deploy across a multi-service repo.',
-    meta: {},
+    // Deliberately iconless — also exercises the lettered fallback tile.
+    meta: { category: 'tooling' },
     sort_order: 15,
   },
   {
@@ -148,12 +151,48 @@ const entities: Entity[] = [
     sort_order: 16,
   },
   {
+    id: 'snippet_dockerfile_multistage',
+    kind: 'snippet',
+    title: 'Multi-stage Dockerfile',
+    body: `FROM node:20-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:20-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/node_modules ./node_modules
+CMD ["node", "dist/server.js"]`,
+    meta: { lang: 'dockerfile' },
+    sort_order: 17,
+  },
+  {
+    id: 'award_deploy_time_10x',
+    kind: 'award',
+    title: '10x faster deploys',
+    body: 'Cut deployment time from 40 minutes to 4 by redesigning the CI/CD pipeline and container build-cache strategy during the Acme monolith-to-Kubernetes migration.',
+    meta: { value: 10, suffix: 'x faster', label: 'Deploy time' },
+    sort_order: 18,
+  },
+  {
+    id: 'award_transactions_2m',
+    kind: 'award',
+    title: '2M transactions/day reconciled',
+    body: 'Built a reconciliation engine at Globex that matches roughly two million payment transactions per day against three upstream ledgers.',
+    meta: { value: 2, suffix: 'M/day', label: 'Transactions reconciled' },
+    sort_order: 19,
+  },
+  {
     id: 'faq_availability',
     kind: 'faq',
     title: 'Are you available for work?',
     body: 'Open to select contract and full-time opportunities; happiest on backend-heavy or infrastructure-adjacent problems.',
     meta: {},
-    sort_order: 17,
+    sort_order: 20,
   },
   {
     id: 'faq_relocation',
@@ -161,7 +200,7 @@ const entities: Entity[] = [
     title: 'Are you open to relocation?',
     body: 'Open to remote roles and occasional travel; prefer not to relocate permanently.',
     meta: {},
-    sort_order: 18,
+    sort_order: 21,
   },
 ];
 

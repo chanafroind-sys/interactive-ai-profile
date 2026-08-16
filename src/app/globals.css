@@ -24,3 +24,79 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Per-profile accent, clamped for contrast in src/lib/color.ts — the page
+   sets --accent-light/--accent-dark inline; this just picks the right one. */
+.accent-scope {
+  --accent: var(--accent-light);
+}
+@media (prefers-color-scheme: dark) {
+  .accent-scope {
+    --accent: var(--accent-dark);
+  }
+}
+
+@keyframes pulse-once {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent) 0%, transparent);
+  }
+}
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@utility animate-pulse-once {
+  animation: pulse-once 1.2s ease-in-out 1;
+}
+@utility animate-card-in {
+  animation: card-in 0.35s ease-out both;
+}
+
+/* shiki's codeToHtml({ defaultColor: false }) emits --shiki-light/--shiki-dark
+   custom properties per token; these two rules pick the right one instead of
+   shipping two separately-highlighted copies of every snippet. */
+.shiki,
+.shiki span {
+  color: var(--shiki-light);
+  background-color: var(--shiki-light-bg) !important;
+}
+@media (prefers-color-scheme: dark) {
+  .shiki,
+  .shiki span {
+    color: var(--shiki-dark);
+    background-color: var(--shiki-dark-bg) !important;
+  }
+}
+
+/* CardPanel's mobile bottom-sheet transform. A plain CSS media query here
+   (rather than a JS viewport check) means the md+ reset applies from first
+   paint, no hydration-timing race. */
+.mobile-sheet {
+  transform: translateY(var(--panel-y, 0));
+}
+@media (min-width: 768px) {
+  .mobile-sheet {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
