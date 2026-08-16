@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "profile-ai",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  // kv_namespaces intentionally commented out until Task 07 creates the
+  // real namespaces — placeholder IDs would fail deploy.
+  // "kv_namespaces": [
+  //   { "binding": "RATE_LIMIT_KV",     "id": "PLACEHOLDER_CREATE_IN_TASK_07" },
+  //   { "binding": "SEMANTIC_CACHE_KV", "id": "PLACEHOLDER_CREATE_IN_TASK_07" }
+  // ],
+  "triggers": { "crons": ["0 */6 * * *"] }
+}
