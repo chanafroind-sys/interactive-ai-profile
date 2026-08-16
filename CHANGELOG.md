@@ -380,3 +380,92 @@ as ✅ **only as of this fix** (migration `0005` + live re-verification on this 
 original Task 02 pass. The underlying cause — Postgres's implicit `PUBLIC` execute grant on new
 functions — is worth carrying forward: any future `security definer` RPC needs the same explicit
 `revoke ... from public`, not just `from anon, authenticated`, or it will have the identical hole.
+
+### QA Audit — 2026-08-16 — ✅ APPROVED
+
+Independent verification against the "Definition of Done & Verification" of `tasks/task-02-schema.md`.
+Audited at commit `c408c3d`. This stamp supersedes the failed audit of `534a87a`, which was rejected
+for the `match_chunks` `PUBLIC`-grant hole documented in the section above.
+
+**Build & type gates — all four exit 0**
+
+| Gate | Result |
+|---|---|
+| `pnpm typecheck` | ✅ exit 0, no errors |
+| `pnpm lint` | ✅ exit 0, "No ESLint warnings or errors" |
+| `pnpm build` | ✅ Next 15.5.23 — 4 routes, 6/6 static pages generated |
+| `pnpm cf:build` | ✅ OpenNext 1.20.2 — `Worker saved in .open-next\worker.js` |
+
+`cf:build` initially failed with `EPERM … rm '.open-next'`. This was **environmental, not a code
+defect**: a wedged `pnpm preview` tree (wrangler + `workerd`) from an earlier session held an
+OS-level lock on `.open-next/assets`, so the adapter could not clear its output directory. Renaming
+the directory also failed with `Permission denied`, confirming the lock. After terminating the stale
+process tree the gate passed unmodified, first try.
+
+**RLS re-verified live — all 9 assertions pass, and independently re-probed over raw HTTP**
+
+`pnpm tsx scripts/verify-rls.ts` exits 0 with 9/9 PASS. Because the previous audit was defeated by a
+check that *reported* PASS while the hole was open, the script's own result was not accepted as
+sufficient this pass; each claim was re-tested directly against the PostgREST API:
+
+| Verification | Method | Result |
+|---|---|---|
+| anon RPC `match_chunks` rejected | raw `POST /rest/v1/rpc/match_chunks` with the anon key | ✅ HTTP 401, `{"code":"42501","message":"permission denied for function match_chunks"}` — a real permission error, not an empty array |
+| …with a *real* `profile_id` | same, using the live `demo` profile id | ✅ `42501` |
+| …with the *unpublished* `profile_id` | same, using the `demo-unpublished` id | ✅ `42501` |
+| **Regression proof** — chunk content is genuinely unreachable | seeded one real sentinel row into `chunks` via the service role, then attacked it with the anon key | ✅ direct `SELECT` → `[]`; RPC → `42501`; **sentinel not leaked**. Under the old code this exact probe returned the row in full. |
+| Service-role path still works | same RPC with the service-role key | ✅ HTTP 200 and the sentinel **is** returned — the `revoke … from public` did not break the retrieval path Tasks 04/05 depend on |
+| `demo-unpublished` is a real row | service-role read | ✅ exists, `is_published = false` — the negative assertion is no longer vacuous |
+| Unpublished profile invisible to anon | anon `SELECT` on profile **and** its entities | ✅ both `[]`; anon sees 19 of 20 entities — the one entity belonging to the unpublished profile is filtered by the `entities` policy |
+| `cvs` bucket private | Storage API `GET /storage/v1/bucket` | ✅ `"public": false`; anon cannot list buckets or objects; public object path → `NoSuchBucket` |
+| Anon writes rejected | anon `INSERT` into `profiles` / `chunks` / `credentials` | ✅ all `42501`; anon `UPDATE` of the real demo row affects 0 rows |
+| `/api/health` does real work | `pnpm dev`, `GET /api/health` | ✅ HTTP 200 `{"ok":true,"ts":…}` against the live database |
+
+All audit test data was removed afterward and the end state re-confirmed: `chunks` empty, both
+profiles intact, 20 entities.
+
+**Secret / git hygiene**
+
+- Only `.env.example` is tracked (10 variable names, all values empty). `.env.local` is ignored via
+  `.gitignore:34` (`git check-ignore -v` confirms).
+- Secret-pattern sweep (JWT `eyJ…`, `sk-…`, `AIza…`) across **every blob in every commit of all
+  refs** — zero hits. The `c408c3d` diff introduces no keys, URLs, or passwords.
+- `git status` clean; `main` in sync with `origin/main`.
+
+**Findings**
+
+- **[CRITICAL] — none. Both prior CRITICALs are closed and re-verified:** the `match_chunks` `PUBLIC`
+  execute grant (fixed by `0005`, proven closed by the sentinel regression test above) and the
+  fail-open verification gate (`checkPermissionDenied()` now asserts `42501`; `checkBlocked()` is
+  correctly retained for table `SELECT`s, where RLS legitimately yields an empty result rather than
+  an error — the distinction is preserved rather than papered over).
+- **[WARNING] The Task 01 build-output warning has now materialised with a real secret.** Task 01
+  flagged that `.open-next/cloudflare/next-env.mjs` inlines `.env.local`, and stated it must be
+  resolved *before* Task 02 put a real `SUPABASE_SERVICE_ROLE_KEY` there. That precondition has now
+  been crossed. Verified against the fresh `cf:build` output: `next-env.mjs` contains the real
+  service-role key and `MASTER_ENCRYPTION_KEY`, and the chain `worker.js` →
+  `cloudflare/init.js` → `next-env.mjs` means `pnpm deploy` would ship both inside the Worker
+  script, bypassing `wrangler secret put`. **Not** a git leak (`.open-next/` is ignored — verified)
+  and **not** in `.open-next/assets`, the browser-served tree (verified), so nothing is publicly
+  exposed today, and invariant 5 still holds (no secret in a `NEXT_PUBLIC_` var or client component).
+  Must be resolved before the first real deploy: keep production secrets out of `.env.local`, using
+  `.dev.vars` for local Workers values and `wrangler secret put` for production.
+- **[WARNING] `seed-fixture.ts` is destructive by design.** Its idempotency step deletes the seed
+  tenants by email, and `on delete cascade` propagates to `profiles` → `entities` → `chunks`. Correct
+  for a fixture, but once Task 04 populates `chunks`, re-running the seed silently discards every
+  embedding for the demo profile. Worth a guard or a note before Task 04.
+- **[WARNING] `src/types/database.ts` is still hand-written**, not generated from the live schema
+  (`supabase gen types` remains blocked on a missing Docker/Podman runtime). Typecheck and every live
+  query in this audit agree with it, so drift risk is low but nonzero. Carried forward unchanged.
+- **[PASSED] Schema correctness.** Composite PK `(profile_id, id)` on `entities` is declared before
+  the composite FK in `chunks` references it; `embedding` is `vector(1536)`; `tsv` is
+  `generated always as (to_tsvector('english', content)) stored` with a GIN index;
+  `gumroad_sale_id` unique; `username` is `citext unique`; no HNSW index — left commented as a
+  documented future step.
+- **[PASSED] RLS shape.** Enabled on all 8 tables; exactly two policies exist, both `for select`, and
+  neither touches `credentials` or `chunks` — the trap called out in the task text was avoided.
+- **[PASSED] Security invariants 1, 3 and 5.** Invariant 1 (`credentials`/`chunks` unreachable with
+  the anon key) now holds through *both* the table path and the RPC path — the latter only as of
+  `0005`. Invariant 3 holds structurally: `p_profile_id` is the first, required argument of
+  `match_chunks` and both CTEs filter on it. Invariants 2 and 4 are not yet exercisable (no BYOK
+  decryption, no LLM in the tree).
