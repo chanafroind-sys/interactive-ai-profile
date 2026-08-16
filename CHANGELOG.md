@@ -89,3 +89,61 @@ pnpm cf:build    # OpenNext/Workers build succeeds — the real gate
 
 `pnpm dev` confirmed locally: `GET /api/health` → `{"ok":true,"ts":...}`; `GET /p/testuser` renders
 "Profile: testuser" server-side.
+
+### QA Audit — 2026-08-16 — ✅ APPROVED
+
+Independent verification against the "Definition of Done" of `tasks/task-01-setup.md`.
+Audited at commit `33dc2c1`.
+
+**Build & type gates — all four exit 0**
+
+| Gate | Result |
+|---|---|
+| `pnpm typecheck` | ✅ exit 0, no errors |
+| `pnpm lint` | ✅ exit 0, "No ESLint warnings or errors" |
+| `pnpm build` | ✅ Next 15.5.23 build succeeded — 4 routes (`/`, `/_not-found` static; `/api/health`, `/p/[username]` dynamic) |
+| `pnpm cf:build` | ✅ OpenNext 1.20.2 / workerd `compatibility_date 2026-08-01` bundle written to `.open-next/worker.js` |
+
+**Runtime verification**
+
+- `pnpm dev` → `GET /api/health` = `{"ok":true,"ts":…}` (HTTP 200);
+  `GET /p/testuser` = HTTP 200, renders `<h1 class="text-2xl">Profile: testuser</h1>`.
+- `pnpm preview` → wrangler 4.123.0 local server on `127.0.0.1:8787`. **Both routes verified through the
+  Workers runtime**, not just the Next dev server: `/api/health` = HTTP 200 JSON, `/p/testuser` = HTTP 200
+  with the same server-rendered markup. This was the task's stated "real gate".
+
+**Secret / git hygiene**
+
+- `git ls-files` — no `.env.local`, no `.wrangler/`, no `.open-next/`, no `.dev.vars`. Only `.env.example`
+  (names, empty values) is tracked.
+- `git check-ignore -v` confirms active rules for all four: `.env*` (`.gitignore:34`), `.open-next/` (`:45`),
+  `.wrangler/` (`:46`), `.dev.vars` (`:47`), with `!.env.example` re-including the template.
+- Secret-pattern sweep (`sk-…`, `AIza…`, JWT `eyJ…`, `service_role`, populated key assignments) across
+  **every blob in every commit of all refs** — zero hits. No secret has ever entered history.
+- `.env.example` variable names and order match the `conventions.md` table **exactly** (10/10).
+- `git status` clean; `main` in sync with `origin/main`.
+
+**Findings**
+
+- **[CRITICAL] — none.**
+- **[WARNING] Build output bakes `.env.local` into the Worker bundle.** `.open-next/cloudflare/next-env.mjs`
+  contains the full env map with the real `MASTER_ENCRYPTION_KEY` value inlined, and is imported by
+  `.open-next/cloudflare/init.js`, which `worker.js` pulls in. Not a git leak (`.open-next/` is ignored —
+  verified) and **not** present in `.open-next/assets` (the browser-served tree — verified), so nothing is
+  publicly exposed today. But `pnpm deploy` would ship whatever is in `.env.local` inside the deployed
+  Worker script, bypassing `wrangler secret put`. Must be resolved before Task 02 puts a real
+  `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`: keep production secrets out of `.env.local` (use `.dev.vars`
+  for local Workers values and `wrangler secret put` for production).
+- **[WARNING] `pnpm test` exits 1.** `vitest run` finds no test files and fails by design. `CLAUDE.md`
+  advertises `pnpm test` as a standing command, so this breaks any CI gate that runs it. Fix with
+  `--passWithNoTests` or a first smoke test.
+- **[WARNING] `next lint` is deprecated** and is removed in Next.js 16; migration to the ESLint CLI is
+  needed before any Next 16 upgrade.
+- **[WARNING] Cron trigger has no handler.** `wrangler.jsonc` declares `"crons": ["0 */6 * * *"]` but no
+  `scheduled` export calls `/api/health`. Expected — Task 02 owns this — noted so it is not forgotten.
+- **[PASSED] Security invariants 1–5** are not yet exercisable (no DB, no BYOK, no retrieval, no LLM in the
+  tree). Nothing in the current code contradicts them: no `NEXT_PUBLIC_` var carries a secret, and no
+  client component reads one.
+
+**Cosmetic (non-blocking):** `src/app/layout.tsx` still carries the scaffold metadata
+(`title: "Create Next App"`); Task 03 replaces it.
