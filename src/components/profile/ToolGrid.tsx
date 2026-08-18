@@ -59,12 +59,20 @@ function Chip({ entity }: { entity: Entity }) {
       data-entity-id={entity.id}
       data-state={state}
       className={[
-        'flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-all duration-300',
-        state === 'spotlit'
-          ? 'motion-safe:scale-105 border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
-          : 'border-foreground/15',
+        'flex items-center gap-2 rounded-full px-3.5 py-2 text-sm transition-all duration-300',
+        state === 'spotlit' ? 'motion-safe:scale-105' : 'cyber-chip',
         state === 'dimmed' ? 'opacity-40' : '',
       ].join(' ')}
+      style={
+        state === 'spotlit'
+          ? {
+              border: '1px solid color-mix(in oklch, var(--neon-cyan) 75%, transparent)',
+              background: 'linear-gradient(160deg, color-mix(in oklch, var(--neon-cyan) 22%, transparent), oklch(0.2 0.05 255 / 0.6))',
+              color: 'var(--neon-cyan)',
+              boxShadow: '0 0 20px color-mix(in oklch, var(--neon-cyan) 45%, transparent)',
+            }
+          : undefined
+      }
     >
       <ToolIcon slug={meta.icon} title={entity.title} />
       {entity.title}
@@ -88,9 +96,10 @@ export function ToolGrid() {
 
   return (
     <section aria-labelledby="tools-heading" className="py-8">
-      <h2 id="tools-heading" className="mb-6 text-xl font-semibold">
+      <h2 id="tools-heading" className="cyber-heading mb-2 text-xl font-semibold">
         Tech stack
       </h2>
+      <div className="cyber-rule mb-6" />
       <div className="flex flex-col gap-4">
         {orderedCategories.map((category) => {
           const items = groups.get(category);

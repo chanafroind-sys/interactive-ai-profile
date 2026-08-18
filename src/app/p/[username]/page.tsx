@@ -7,8 +7,9 @@ import { highlightSnippets } from '@/lib/highlight';
 import { getAccessibleAccentPair } from '@/lib/color';
 import type { ProfileJSON } from '@/types/profile';
 import { ProfileProvider } from '@/components/profile/ProfileProvider';
-import { Timeline } from '@/components/profile/Timeline';
+import { CareerRoadmap } from '@/components/profile/roadmap/CareerRoadmap';
 import { ToolGrid } from '@/components/profile/ToolGrid';
+import { Toolbox } from '@/components/profile/Toolbox';
 import { CardPanel } from '@/components/profile/CardPanel';
 import { CodePanel } from '@/components/profile/CodePanel';
 import { MetricStrip } from '@/components/profile/MetricStat';
@@ -65,13 +66,13 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
 
   return (
     <div
-      className="accent-scope min-h-screen"
+      className="accent-scope profile-dark min-h-screen bg-background text-foreground"
       style={{ '--accent-light': accent.light, '--accent-dark': accent.dark } as React.CSSProperties}
     >
       <Link
         href="/"
         rel="noopener"
-        className="fixed right-4 top-4 z-50 rounded-full border border-foreground/15 bg-background/90 px-3 py-1.5 text-xs text-foreground/70 backdrop-blur transition-colors hover:text-[var(--accent)]"
+        className="cyber-chip fixed right-4 top-4 z-50 rounded-full px-3.5 py-2 text-xs transition-colors hover:text-[var(--neon-cyan)]"
       >
         Build your own →
       </Link>
@@ -79,9 +80,34 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
       <ProfileProvider profile={profile} snippetHtml={snippetHtml}>
         <DebugActions />
 
-        <main className="mx-auto flex max-w-5xl flex-col gap-2 px-4 pb-40 pt-16 md:grid md:grid-cols-[1fr_340px] md:gap-x-8">
-          <header className="md:col-span-2">
-            <div className="flex items-center gap-4">
+        {/* Three dedicated, regional grid columns — roadmap, tech
+            stack/bio, projects — each with its own space and nothing
+            forcing another to compress. Widths are tuned as close to an
+            even ~35/35/30 split as the roadmap's fixed-pixel detail-card
+            geometry allows (see CareerRoadmap/roadmap-layout: the card's
+            clearance + width are real pixels, not percentages, so that
+            column can't shrink below ~650px without the card risking
+            spilling into the centre column). The 650px/370px split below
+            keeps their *combined* width identical to the old 700+320,
+            so the centre column's share — and this breakpoint itself —
+            is unaffected; only the roadmap/projects balance shifted.
+            The grid only switches on past `min-[1550px]` — the width
+            where roadmap + gaps + a genuinely readable centre column +
+            projects all actually fit. Below that, three squeezed columns
+            would be worse than three full-width stacked sections, so it
+            stacks instead: still zero overlap, just vertical. */}
+        <main className="mx-auto flex max-w-[1680px] flex-col gap-10 px-4 pb-40 pt-10 min-[1550px]:grid min-[1550px]:grid-cols-[650px_minmax(460px,1fr)_370px] min-[1550px]:items-start min-[1550px]:gap-10">
+          {/* Left: vertical roadmap. Scrolls with the page as a sidebar, not
+              full-bleed — the marker/active-station tracking depends on each
+              station's own position moving past the viewport centre as the
+              user scrolls, so this can't be sticky-pinned. */}
+          <div className="w-full">
+            <CareerRoadmap />
+          </div>
+
+          {/* Centre: bio, tech stack + toolbox, metrics, code. */}
+          <div className="min-w-0">
+            <div className="cyber-panel flex items-center gap-4 rounded-2xl p-5">
               {profile.avatar_url && (
                 // Tenant-supplied, arbitrary-domain image — next/image's remote
                 // pattern allowlist can't cover every customer's CDN.
@@ -95,21 +121,30 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
                 />
               )}
               <div>
-                <h1 className="text-2xl font-bold">{profile.display_name}</h1>
-                <p className="text-foreground/70">{profile.headline}</p>
+                <h1 className="cyber-heading text-2xl font-bold">{profile.display_name}</h1>
+                <p style={{ color: 'var(--neon-cyan)' }}>{profile.headline}</p>
               </div>
             </div>
-            {summary && <p className="mt-4 max-w-2xl text-sm leading-relaxed text-foreground/80">{summary.body}</p>}
-          </header>
+            {summary && <p className="mt-4 max-w-2xl text-sm leading-relaxed text-cyber-muted">{summary.body}</p>}
 
-          <div className="flex min-w-0 flex-col">
-            <Timeline />
-            <ToolGrid />
+            {/* Tech stack + toolbox share a row so the toolbox sits
+                natively at the top-right of this section instead of off in
+                its own separate block. */}
+            <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 flex-1">
+                <ToolGrid />
+              </div>
+              <div className="shrink-0 self-center sm:self-start">
+                <Toolbox />
+              </div>
+            </div>
+
             <MetricStrip />
             <CodePanel />
           </div>
 
-          <div className="md:sticky md:top-16 md:self-start">
+          {/* Right: compact projects carousel. */}
+          <div className="w-full min-[1550px]:sticky min-[1550px]:top-16 min-[1550px]:self-start">
             <CardPanel />
           </div>
         </main>

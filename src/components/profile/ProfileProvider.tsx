@@ -14,6 +14,17 @@ export interface RawUiAction {
   id?: string;
 }
 
+/** Pull a validated ID list off an untrusted payload. Accepts both wire forms
+ *  (`ids: string[]` and the scalar `id: string`), tolerates a bare string in
+ *  either slot, and drops anything that isn't a string — the entity-map check
+ *  in `dispatch` is what decides whether a surviving ID is real. */
+function readIds(action: Record<string, unknown>): string[] {
+  const raw = action.ids ?? action.id;
+  if (typeof raw === 'string') return [raw];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((id): id is string => typeof id === 'string');
+}
+
 const KNOWN_ACTIONS = new Set<string>([
   'focus_timeline',
   'show_cards',
@@ -29,13 +40,24 @@ interface ProfileContextValue {
   entityMap: Map<string, Entity>;
   snippetHtml: Record<string, string>;
   focusedTimeline: Set<string>;
+  /** Everything the card panel should show: the default featured projects
+   *  plus anything an action revealed. */
   revealedCards: string[];
+  /** Only what a `show_cards` action revealed. Consumers that highlight on
+   *  AI activity must use this — `revealedCards` is non-empty at rest, so
+   *  keying a highlight off it leaves the default projects lit forever. */
+  aiRevealedCards: string[];
   spotlitTools: Set<string>;
   openSnippet: string | null;
   animatingMetric: string | null;
   revealedLinks: Set<string>;
   prefersReducedMotion: boolean;
-  dispatch: (action: RawUiAction) => void;
+  /** Increments on every resetView, so components holding their own local
+   *  interaction state (e.g. an open detail card) can clear it too. */
+  resetSignal: number;
+  /** Untyped on purpose: the real caller (Task 05) feeds this `JSON.parse`
+   *  output straight off the wire, so every field is validated at runtime. */
+  dispatch: (action: unknown) => void;
   resetView: () => void;
   toggleSnippet: (id: string) => void;
   /** Shared id → DOM node registry, used to scroll timeline nodes and metric tiles into view. */
@@ -72,11 +94,19 @@ export function ProfileProvider({
   const nodeRegistry = useRef(new Map<string, HTMLElement>());
 
   const [focusedTimeline, setFocusedTimeline] = useState<Set<string>>(new Set());
-  const [revealedCards, setRevealedCards] = useState<string[]>(defaultCards);
+  const [aiRevealedCards, setAiRevealedCards] = useState<string[]>([]);
   const [spotlitTools, setSpotlitTools] = useState<Set<string>>(new Set());
   const [openSnippet, setOpenSnippet] = useState<string | null>(null);
   const [animatingMetric, setAnimatingMetric] = useState<string | null>(null);
   const [revealedLinks, setRevealedLinks] = useState<Set<string>>(new Set());
+  const [resetSignal, setResetSignal] = useState(0);
+
+  // The panel shows the featured defaults plus whatever an action revealed;
+  // the two are tracked separately so "revealed by the AI" stays meaningful.
+  const revealedCards = useMemo(
+    () => Array.from(new Set([...defaultCards, ...aiRevealedCards])),
+    [defaultCards, aiRevealedCards]
+  );
 
   const registerNode = useCallback((id: string, el: HTMLElement | null) => {
     if (el) nodeRegistry.current.set(id, el);
@@ -89,18 +119,26 @@ export function ProfileProvider({
 
   const resetView = useCallback(() => {
     setFocusedTimeline(new Set());
-    setRevealedCards(defaultCards);
+    setAiRevealedCards([]);
     setSpotlitTools(new Set());
     setOpenSnippet(null);
     setAnimatingMetric(null);
     setRevealedLinks(new Set());
-  }, [defaultCards]);
+    setResetSignal((n) => n + 1);
+  }, []);
 
   const dispatch = useCallback(
-    (action: RawUiAction) => {
-      if (!KNOWN_ACTIONS.has(action.action)) return;
+    (action: unknown) => {
+      // Shape-check before touching any field. A malformed frame (`null`, a
+      // bare string, `ids` sent as a scalar) has to be as silent a no-op as an
+      // unknown action name — this runs inside an SSE listener in Task 05,
+      // where a throw would tear down the handler and stall the whole stream.
+      if (typeof action !== 'object' || action === null || Array.isArray(action)) return;
+      const raw = action as Record<string, unknown>;
+      const name = raw.action;
+      if (typeof name !== 'string' || !KNOWN_ACTIONS.has(name)) return;
 
-      if (action.action === 'reset_view') {
+      if (name === 'reset_view') {
         resetView();
         return;
       }
@@ -108,10 +146,10 @@ export function ProfileProvider({
       // Centralised validation: an ID that isn't in this profile's real
       // entity map never reaches component state, so a bad ID is a silent
       // no-op everywhere, not just wherever a component happens to check.
-      const ids = (action.ids ?? (action.id ? [action.id] : [])).filter((id) => entityMap.has(id));
+      const ids = readIds(raw).filter((id) => entityMap.has(id));
       if (ids.length === 0) return;
 
-      switch (action.action) {
+      switch (name) {
         case 'focus_timeline': {
           setFocusedTimeline(new Set(ids));
           const target = nodeRegistry.current.get(ids[0]!);
@@ -122,7 +160,7 @@ export function ProfileProvider({
           ids.forEach((id, i) => {
             const delay = prefersReducedMotion ? 0 : i * 120;
             setTimeout(() => {
-              setRevealedCards((prev) => (prev.includes(id) ? prev : [...prev, id]));
+              setAiRevealedCards((prev) => (prev.includes(id) ? prev : [...prev, id]));
             }, delay);
           });
           break;
@@ -153,11 +191,13 @@ export function ProfileProvider({
     snippetHtml,
     focusedTimeline,
     revealedCards,
+    aiRevealedCards,
     spotlitTools,
     openSnippet,
     animatingMetric,
     revealedLinks,
     prefersReducedMotion,
+    resetSignal,
     dispatch,
     resetView,
     toggleSnippet,

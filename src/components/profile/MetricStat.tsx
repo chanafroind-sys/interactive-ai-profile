@@ -69,15 +69,26 @@ function MetricTile({ entity }: { entity: Entity }) {
       data-entity-id={entity.id}
       data-state={active ? 'active' : 'default'}
       className={[
-        'scroll-mt-24 rounded-xl border p-4 text-center transition-colors duration-300',
-        active ? 'motion-safe:animate-pulse-once border-[var(--accent)] bg-[var(--accent)]/5' : 'border-foreground/10',
+        'cyber-panel scroll-mt-24 rounded-xl p-4 text-center transition-all duration-300',
+        active ? 'motion-safe:animate-pulse-once' : '',
       ].join(' ')}
+      style={
+        active
+          ? {
+              borderColor: 'color-mix(in oklch, var(--neon-cyan) 70%, transparent)',
+              boxShadow: '0 0 26px color-mix(in oklch, var(--neon-cyan) 40%, transparent)',
+            }
+          : undefined
+      }
     >
-      <p className="text-3xl font-bold text-[var(--accent)]">
+      <p
+        className="text-3xl font-bold"
+        style={{ color: 'var(--neon-cyan)', textShadow: '0 0 22px color-mix(in oklch, var(--neon-cyan) 55%, transparent)' }}
+      >
         <CountUp value={meta.value} play={inView || prefersReducedMotion} />
         {meta.suffix}
       </p>
-      <p className="mt-1 text-sm text-foreground/70">{meta.label ?? entity.title}</p>
+      <p className="mt-1 text-sm text-cyber-muted">{meta.label ?? entity.title}</p>
     </li>
   );
 }
@@ -89,9 +100,10 @@ export function MetricStrip() {
 
   return (
     <section aria-labelledby="metrics-heading" className="py-8">
-      <h2 id="metrics-heading" className="mb-4 text-xl font-semibold">
+      <h2 id="metrics-heading" className="cyber-heading mb-2 text-xl font-semibold">
         Highlights
       </h2>
+      <div className="cyber-rule mb-4" />
       <ul className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {metrics.map((entity) => (
           <MetricTile key={entity.id} entity={entity} />

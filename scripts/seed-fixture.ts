@@ -48,7 +48,9 @@ const entities: Entity[] = [
     kind: 'project',
     title: 'Monolith → K8s migration',
     body: 'Led the design and rollout of migrating a legacy Java monolith to containerised microservices on Kubernetes, including a strangler-fig cutover plan that kept the system live throughout. Deploy time dropped from 40 minutes to 4.',
-    meta: { url: null, tech: ['Docker', 'Kubernetes', 'Helm'] },
+    // Dated to the Acme role this project was done in — the roadmap orders
+    // stations chronologically, and undated projects can only be guessed at.
+    meta: { url: null, start: '2021-04', end: '2023-02', tech: ['Docker', 'Kubernetes', 'Helm'] },
     sort_order: 4,
   },
   {
@@ -56,7 +58,18 @@ const entities: Entity[] = [
     kind: 'project',
     title: 'Payments reconciliation engine',
     body: 'Built a reconciliation service that matches ~2M daily transactions against three upstream ledgers, flagging discrepancies within minutes instead of the previous next-day batch job.',
-    meta: { url: null, tech: ['Node.js', 'PostgreSQL', 'Redis'] },
+    // Exercises the image-carousel path — no GitHub link, just screenshots.
+    meta: {
+      url: null,
+      start: '2018-09',
+      end: '2019-11',
+      tech: ['Node.js', 'PostgreSQL', 'Redis'],
+      imageUrl: [
+        'https://picsum.photos/seed/reconciliation-dashboard/800/450',
+        'https://picsum.photos/seed/reconciliation-alerts/800/450',
+        'https://picsum.photos/seed/reconciliation-ledger/800/450',
+      ],
+    },
     sort_order: 5,
   },
   {
@@ -64,7 +77,7 @@ const entities: Entity[] = [
     kind: 'project',
     title: 'Internal feature-flag platform',
     body: 'Designed and built an internal feature-flag and gradual-rollout platform adopted by 30+ services, replacing a spreadsheet-driven config process.',
-    meta: { url: null, tech: ['TypeScript', 'Postgres'] },
+    meta: { url: null, start: '2020-01', end: '2020-11', tech: ['TypeScript', 'Postgres'] },
     sort_order: 6,
   },
   {
@@ -72,8 +85,14 @@ const entities: Entity[] = [
     kind: 'project',
     title: 'Interactive AI profile (this site)',
     body: 'A multi-tenant SaaS that turns a CV into an AI-driven interactive profile page: visitors chat with an agent that selects which timeline entries, cards and tools to reveal, backed by hybrid RAG search over pgvector.',
-    // Only fixture project with a link, so `open_link` has something real to reveal in the demo.
-    meta: { url: 'https://github.com', tech: ['Next.js', 'Cloudflare Workers', 'Supabase', 'pgvector'] },
+    // A real repo link, so `open_link` has something to reveal *and* the
+    // GitHub-preview path in CardPanel has a real repo to fetch a preview for.
+    meta: {
+      url: 'https://github.com/vercel/next.js',
+      start: '2026-06',
+      end: '2026-08',
+      tech: ['Next.js', 'Cloudflare Workers', 'Supabase', 'pgvector'],
+    },
     sort_order: 7,
   },
   {
@@ -141,6 +160,22 @@ const entities: Entity[] = [
     // Deliberately iconless — also exercises the lettered fallback tile.
     meta: { category: 'tooling' },
     sort_order: 15,
+  },
+  {
+    id: 'skill_redis',
+    kind: 'skill',
+    title: 'Redis',
+    body: 'Redis — caching, rate limiting and pub/sub for the reconciliation engine and feature-flag platform.',
+    meta: { category: 'datastore', icon: 'redis' },
+    sort_order: 16,
+  },
+  {
+    id: 'skill_react',
+    kind: 'skill',
+    title: 'React',
+    body: 'React — component-level frontend work on top of the backend services, including this profile’s own UI.',
+    meta: { category: 'framework', icon: 'react' },
+    sort_order: 17,
   },
   {
     id: 'edu_technion_2016',

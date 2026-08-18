@@ -83,15 +83,17 @@ export function DebugActions() {
   ];
 
   return (
-    <div className="fixed left-4 top-4 z-50 flex max-w-[230px] flex-col gap-1 rounded-xl border border-foreground/15 bg-background/95 p-3 text-xs shadow-xl backdrop-blur">
-      <p className="mb-1 font-semibold text-foreground/70">Debug actions (dev only)</p>
+    <div className="cyber-panel fixed left-4 top-4 z-50 flex max-w-[230px] flex-col gap-1 rounded-xl p-3 text-xs">
+      <p className="mb-1 font-semibold" style={{ color: 'var(--neon-cyan)' }}>
+        Debug actions (dev only)
+      </p>
       {buttons.map((b) => (
         <button
           key={b.label}
           type="button"
           onClick={b.onClick}
           disabled={b.disabled}
-          className="rounded-md border border-foreground/10 px-2 py-1 text-left transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-30"
+          className="cyber-chip rounded-md px-2 py-1 text-left transition-colors hover:text-[var(--neon-cyan)] disabled:cursor-not-allowed disabled:opacity-30"
         >
           {b.label}
         </button>

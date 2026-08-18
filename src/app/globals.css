@@ -90,6 +90,138 @@ body {
   }
 }
 
+/* ---- Career roadmap (ported from the v0 "interactive-career-roadmap"
+   export) — scoped under its own cyber-/neon- names so nothing here
+   collides with --background/--foreground/--accent above. ---- */
+:root {
+  --cyber-bg: oklch(0.17 0.045 255);
+  --cyber-line: oklch(0.55 0.09 240 / 0.28);
+  --cyber-text: oklch(0.96 0.01 250);
+  --cyber-muted: oklch(0.72 0.03 250);
+  --neon-cyan: oklch(0.82 0.15 200);
+  --neon-blue: oklch(0.7 0.16 250);
+  --neon-gold: oklch(0.83 0.15 82);
+  /* New — the v0 export only had 3 station colours (education/experience/
+     goal); project entities are a 4th kind the roadmap now also renders. */
+  --neon-purple: oklch(0.72 0.15 310);
+}
+@theme inline {
+  --color-cyber-bg: var(--cyber-bg);
+  --color-cyber-text: var(--cyber-text);
+  --color-cyber-muted: var(--cyber-muted);
+  --color-neon-cyan: var(--neon-cyan);
+  --color-neon-blue: var(--neon-blue);
+  --color-neon-gold: var(--neon-gold);
+  --color-neon-purple: var(--neon-purple);
+}
+
+/* Profile pages render dark end-to-end. Rather than restyling every
+   component, this re-points the same --background/--foreground/--accent
+   tokens they already consume, so ToolGrid, CardPanel, CodePanel, the chat
+   bar and the debug panel all follow automatically. */
+.profile-dark {
+  --background: var(--cyber-bg);
+  --foreground: var(--cyber-text);
+  color-scheme: dark;
+}
+/* Two classes, so this wins over `.accent-scope`'s light default regardless
+   of source order or the prefers-color-scheme block below it. */
+.accent-scope.profile-dark {
+  --accent: var(--accent-dark);
+}
+/* The page wrapper covers the viewport, but overscroll would otherwise
+   flash the light body colour behind it. */
+body:has(.profile-dark) {
+  background: var(--cyber-bg);
+}
+/* Force shiki's dark token set inside the dark page, independent of the
+   visitor's prefers-color-scheme. */
+.profile-dark .shiki,
+.profile-dark .shiki span {
+  color: var(--shiki-dark);
+  background-color: var(--shiki-dark-bg) !important;
+}
+
+/* ---- Shared cyberpunk glassmorphism surfaces ----
+   Used by every component around the roadmap so the page reads as one
+   material rather than a dark slab with light-theme widgets on top. */
+.cyber-panel {
+  border: 1px solid color-mix(in oklch, var(--neon-cyan) 26%, transparent);
+  background:
+    linear-gradient(160deg, oklch(0.26 0.06 250 / 0.42), oklch(0.16 0.04 255 / 0.62));
+  backdrop-filter: blur(14px);
+  box-shadow:
+    0 0 28px oklch(0.5 0.12 250 / 0.16),
+    inset 0 1px 0 oklch(1 0 0 / 0.09);
+}
+.cyber-panel-purple {
+  border-color: color-mix(in oklch, var(--neon-purple) 32%, transparent);
+  box-shadow:
+    0 0 28px color-mix(in oklch, var(--neon-purple) 18%, transparent),
+    inset 0 1px 0 oklch(1 0 0 / 0.09);
+}
+.cyber-chip {
+  border: 1px solid color-mix(in oklch, var(--neon-cyan) 30%, transparent);
+  background: linear-gradient(160deg, oklch(0.3 0.06 250 / 0.35), oklch(0.18 0.045 255 / 0.5));
+  backdrop-filter: blur(8px);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1);
+}
+/* Neon section headings */
+.cyber-heading {
+  color: var(--cyber-text);
+  text-shadow: 0 0 18px color-mix(in oklch, var(--neon-cyan) 45%, transparent);
+}
+.cyber-rule {
+  height: 1px;
+  background: linear-gradient(90deg, var(--neon-cyan), color-mix(in oklch, var(--neon-purple) 70%, transparent), transparent);
+  opacity: 0.55;
+}
+
+@keyframes roadmap-dash {
+  to {
+    stroke-dashoffset: -40;
+  }
+}
+@keyframes roadmap-grid-drift {
+  from {
+    background-position: 0 0, 0 0;
+  }
+  to {
+    background-position: 48px 48px, 48px 48px;
+  }
+}
+.roadmap-grid {
+  background-image:
+    linear-gradient(var(--cyber-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--cyber-line) 1px, transparent 1px);
+  background-size: 48px 48px, 48px 48px;
+  animation: roadmap-grid-drift 14s linear infinite;
+}
+
+/* ---- True 3D plane projection for the highway ----
+   The road (SVG surface/walls/kerbs/station-anchor rings) and the tour
+   marker sit inside `.roadmap-scene-tilt`, a real CSS 3D rotation of the
+   whole ground plane — not a flat 2D approximation. Every station's visual
+   content (platform art, label, skill bubbles) is then counter-rotated back
+   upright via `.roadmap-billboard`, so it reads as a flat marker planted at
+   a true 3D-projected position on that tilted ground, the same technique
+   isometric games use for sprites over a 3D terrain: full depth read on the
+   surface itself, full legibility on everything standing on it.
+   `.roadmap-scene-viewport` (perspective, unrotated) must wrap
+   `.roadmap-scene-tilt`, and every element between the tilt and a billboard
+   needs `preserve-3d` or the rotation gets flattened before it's cancelled. */
+.roadmap-scene-viewport {
+  perspective: 1500px;
+  perspective-origin: 50% 8%;
+}
+.roadmap-scene-tilt {
+  transform: rotateX(52deg) rotateZ(-22deg);
+  transform-style: preserve-3d;
+}
+.roadmap-billboard {
+  transform: rotateZ(22deg) rotateX(-52deg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

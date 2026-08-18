@@ -14,6 +14,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // v0 export — a separate, standalone Next.js project we're porting
+    // *from*, not part of this app's build.
+    "interactive-career-roadmap/**",
   ]),
 ]);
 
